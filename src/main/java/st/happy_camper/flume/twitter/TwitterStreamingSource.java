@@ -32,15 +32,19 @@ public class TwitterStreamingSource extends EventSource.Base {
 
     private final int connectionTimeout;
 
+    private final String[] trackedWord;
+
+
     /**
      * @param name
      * @param password
      * @param connectionTimeout
      */
-    public TwitterStreamingSource(String name, String password, int connectionTimeout) {
+    public TwitterStreamingSource(String name, String password, int connectionTimeout, String[] trackedWord) {
         this.name = name;
         this.password = password;
         this.connectionTimeout = connectionTimeout;
+        this.trackedWord = trackedWord;
     }
 
     private TwitterStreamingConnection conn;
@@ -51,10 +55,9 @@ public class TwitterStreamingSource extends EventSource.Base {
      */
     @Override
     public synchronized void open() throws IOException {
-        if(conn == null) {
-            conn = new TwitterStreamingConnection(name, password, connectionTimeout);
-        }
-        else {
+        if (conn == null) {
+            conn = new TwitterStreamingConnection(name, password, connectionTimeout, trackedWord);
+        } else {
             throw new IllegalStateException();
         }
     }
@@ -65,19 +68,17 @@ public class TwitterStreamingSource extends EventSource.Base {
      */
     @Override
     public Event next() throws IOException {
-        if(conn != null) {
+        if (conn != null) {
             String status = conn.take();
-            if(status != null) {
+            if (status != null) {
                 Event event = new EventImpl(status.getBytes("utf8"));
                 event.set(Event.A_SERVICE, "Twitter".getBytes("utf8"));
                 updateEventProcessingStats(event);
                 return event;
-            }
-            else {
+            } else {
                 return null;
             }
-        }
-        else {
+        } else {
             throw new IllegalStateException();
         }
     }
@@ -88,7 +89,7 @@ public class TwitterStreamingSource extends EventSource.Base {
      */
     @Override
     public synchronized void close() throws IOException {
-        if(conn != null) {
+        if (conn != null) {
             conn.close();
             conn = null;
         }
@@ -99,19 +100,20 @@ public class TwitterStreamingSource extends EventSource.Base {
      * @throws IOException
      */
     public static void main(String... args) throws IOException {
-        if(args.length < 2) {
-            System.err.println("Usage: TwitterStreamingSource name password [connectionTimeout]");
+        if (args.length < 2) {
+            System.err.println("Usage: TwitterStreamingSource name password trackedword");
             System.exit(-1);
         }
 
         String name = args[0];
         String password = args[1];
+        String[] trackedWord = new String[args.length - 2];
         int connectionTimeout = 1000; // ms
-        if(args.length > 2) {
-            connectionTimeout = Integer.parseInt(args[2]);
+        if (args.length > 2) {
+            System.arraycopy(args, 2, trackedWord, 0, args.length - 2);
         }
 
-        final TwitterStreamingSource src = new TwitterStreamingSource(name, password, connectionTimeout);
+        final TwitterStreamingSource src = new TwitterStreamingSource(name, password, connectionTimeout, trackedWord);
 
         src.open();
 
@@ -119,11 +121,10 @@ public class TwitterStreamingSource extends EventSource.Base {
 
             public void run() {
                 try {
-                    while(true) {
+                    while (true) {
                         System.out.println(src.next());
                     }
-                }
-                catch(IOException e) {
+                } catch (IOException e) {
                     e.printStackTrace();
                 }
             }

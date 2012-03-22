@@ -46,23 +46,29 @@ public class TwitterStreamingPlugin {
 
             @Override
             public EventSource build(Context ctx, String... args) {
-                Preconditions.checkArgument(args.length <= 3, "usage: Twitter[(name[, password[, connectionTimeout]])]");
+                System.out.println(".....LENGTH : "+args.length);
+               // Preconditions.checkArgument(args.length <= 4, "usage: Twitter[(name[, password[, trackedWord]])]");
 
                 FlumeConfiguration conf = FlumeConfiguration.get();
 
                 String name = conf.getTwitterName();
-                if(args.length > 0) {
+                if (args.length > 0) {
                     name = args[0];
                 }
                 String password = conf.getTwitterPW();
-                if(args.length > 1) {
+                if (args.length > 1) {
                     password = args[1];
                 }
                 int connectionTimeout = 1000; // ms
-                if(args.length > 2) {
-                    connectionTimeout = Integer.parseInt(args[1]);
+
+                String[] trackedWord = new String[args.length - 2];
+                if (args.length > 2) {
+                    System.arraycopy(args, 2, trackedWord, 0, args.length - 2);
                 }
-                return new TwitterStreamingSource(name, password, connectionTimeout);
+                if (args.length > 2) {
+
+                }
+                return new TwitterStreamingSource(name, password, connectionTimeout, trackedWord);
             }
         }));
         return builders;
@@ -81,7 +87,7 @@ public class TwitterStreamingPlugin {
 
                 FlumeConfiguration conf = FlumeConfiguration.get();
                 String tableName = conf.get(TwitterStreamingHBaseSink.class.getName() + ".tableName", "timeline");
-                if(args.length > 0) {
+                if (args.length > 0) {
                     tableName = args[0];
                 }
                 return new TwitterStreamingHBaseSink(HBaseConfiguration.create(conf), tableName);

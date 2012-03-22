@@ -18,6 +18,7 @@ package st.happy_camper.flume.twitter;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -30,6 +31,8 @@ import org.apache.commons.httpclient.HttpStatus;
 import org.apache.commons.httpclient.UsernamePasswordCredentials;
 import org.apache.commons.httpclient.auth.AuthScope;
 import org.apache.commons.httpclient.methods.GetMethod;
+import org.apache.commons.httpclient.methods.PostMethod;
+import org.apache.commons.httpclient.methods.StringRequestEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +43,9 @@ public class TwitterStreamingConnection {
 
     private static final Logger LOG = LoggerFactory.getLogger(TwitterStreamingConnection.class);
 
-    private static final String URL = "https://stream.twitter.com/1/statuses/sample.json";
+    private static final String URL = "https://stream.twitter.com/1/statuses/filter.json";
+
+    private final String postContent;
 
     private final Random rnd = new Random();
 
@@ -58,13 +63,19 @@ public class TwitterStreamingConnection {
      * @param connectionTimeout
      * @throws IOException
      */
-    public TwitterStreamingConnection(String name, String password, int connectionTimeout) throws IOException {
+    public TwitterStreamingConnection(String name, String password, int connectionTimeout, String[] trackedKeyword) throws IOException {
         httpClient = new HttpClient();
         httpClient.getHttpConnectionManager().getParams().setConnectionTimeout(connectionTimeout);
         httpClient.getHttpConnectionManager().getParams().setSoTimeout(10 * 1000);
         httpClient.getParams().setAuthenticationPreemptive(true);
         httpClient.getState().setCredentials(AuthScope.ANY, new UsernamePasswordCredentials(name, password));
 
+        StringBuilder content = new StringBuilder("");
+        for (String t : trackedKeyword) {
+            content.append(t);
+            content.append(",");
+        }
+        postContent = content.toString();
         doOpen();
 
         Executors.newSingleThreadExecutor(new ThreadFactory() {
@@ -80,7 +91,7 @@ public class TwitterStreamingConnection {
                 BlockingQueue<String> queue = TwitterStreamingConnection.this.queue;
 
                 String line;
-                while((line = readLine()) != null) {
+                while ((line = readLine()) != null) {
                     queue.add(line);
                 }
             }
@@ -94,14 +105,13 @@ public class TwitterStreamingConnection {
     public String take() {
         try {
             return (queue != null) ? queue.take() : null;
-        }
-        catch(InterruptedException e) {
+        } catch (InterruptedException e) {
             return null;
         }
     }
 
     /**
-     * 
+     *
      */
     public synchronized void close() {
         queue = null;
@@ -114,26 +124,23 @@ public class TwitterStreamingConnection {
     private String readLine() {
         try {
             String line = reader.readLine();
-            if(line != null) {
+            if (line != null) {
                 return line;
-            }
-            else {
-                synchronized(this) {
-                    if(queue != null) {
+            } else {
+                synchronized (this) {
+                    if (queue != null) {
                         method.releaseConnection();
 
                         doOpen();
                         return readLine();
-                    }
-                    else {
+                    } else {
                         return null;
                     }
                 }
             }
-        }
-        catch(IOException e) {
-            synchronized(this) {
-                if(queue != null) {
+        } catch (IOException e) {
+            synchronized (this) {
+                if (queue != null) {
                     LOG.warn(e.getMessage(), e);
 
                     Thread t = new Thread() {
@@ -141,10 +148,9 @@ public class TwitterStreamingConnection {
                         @Override
                         public void run() {
                             try {
-                                while(reader.readLine() != null)
+                                while (reader.readLine() != null)
                                     ;
-                            }
-                            catch(IOException e) {
+                            } catch (IOException e) {
                             }
                         }
 
@@ -155,14 +161,12 @@ public class TwitterStreamingConnection {
 
                     try {
                         t.join();
-                    }
-                    catch(InterruptedException ie) {
+                    } catch (InterruptedException ie) {
                     }
 
                     doOpen();
                     return readLine();
-                }
-                else {
+                } else {
                     return null;
                 }
             }
@@ -175,11 +179,14 @@ public class TwitterStreamingConnection {
     private void doOpen() {
         int backoff = 10000;
 
-        while(true) {
-            HttpMethod method = new GetMethod(URL);
+        while (true) {
+            PostMethod method = new PostMethod(URL);
+
+            LOG.info("post: " + this.postContent);
+            method.setParameter("track", this.postContent);
             try {
                 int statusCode = httpClient.executeMethod(method);
-                switch(statusCode) {
+                switch (statusCode) {
                     case 200: {
                         LOG.info("Connected.");
                         this.method = method;
@@ -193,6 +200,7 @@ public class TwitterStreamingConnection {
                     case 416: {
                         String message = String.format("%d %s.", statusCode, HttpStatus.getStatusText(statusCode));
                         LOG.warn(message);
+                        LOG.warn(method.getResponseBodyAsString());
                         method.releaseConnection();
 
                         throw new IllegalStateException(message);
@@ -218,11 +226,9 @@ public class TwitterStreamingConnection {
                         method.releaseConnection();
                     }
                 }
-            }
-            catch(IllegalStateException e) {
+            } catch (IllegalStateException e) {
                 throw e;
-            }
-            catch(Exception e) {
+            } catch (Exception e) {
                 LOG.error(e.getMessage(), e);
                 method.releaseConnection();
             }
@@ -231,13 +237,12 @@ public class TwitterStreamingConnection {
             LOG.info(String.format("Retry after %d milliseconds.", wait));
             try {
                 Thread.sleep(wait);
-            }
-            catch(InterruptedException e) {
+            } catch (InterruptedException e) {
                 LOG.error(e.getMessage(), e);
             }
-            if(backoff < 240000) {
+            if (backoff < 240000) {
                 backoff *= 2;
-                if(backoff >= 240000) {
+                if (backoff >= 240000) {
                     backoff = 240000;
                 }
             }
